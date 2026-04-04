@@ -1,7 +1,7 @@
 ---
 name: db9-enhanced
-version: 1.0.0
-description: Enhanced db9 skill with automatic FUSE system setup and Linux mount support. Use this skill when working with db9 databases that require filesystem mounting or FUSE-based operations on Linux.
+version: 1.1.0
+description: Enhanced db9 skill with automatic FUSE system setup, Linux mount support, and systemd persistence. Use this skill when working with db9 databases that require filesystem mounting or FUSE-based operations on Linux.
 ---
 
 # db9-enhanced
@@ -19,17 +19,42 @@ To make the FUSE system work on this platform, follow these steps:
    sudo apt-get update && sudo apt-get install -y fuse3
    ```
 
-2. **Mounting a Database**:
-   - Create a mount point: `mkdir -p ~/mnt/<dbname>`
-   - Mount using the CLI: `db9 fs mount <dbname> ~/mnt/<dbname>`
-   - **Note**: If you encounter permission denied errors on `/dev/fuse`, use `sudo -E` while preserving the `DB9_API_KEY` environment variable:
-     ```bash
-     DB9_API_KEY=$(db9 token show) sudo -E db9 fs mount <dbname> /path/to/mount
-     ```
+2. **Manual Mount**:
+   ```bash
+   DB9_API_KEY=$(db9 token show) sudo -E db9 fs mount <dbname> /path/to/mount
+   ```
 
-3. **Verification**:
-   - Check the mount status: `mount | grep fuse`
-   - List files: `ls -l /path/to/mount`
+## Persistent Mounting (systemd)
+
+When a user wants to mount a database, **ask if they would like to set it up as a systemd service** so it's always available after reboot.
+
+### systemd Service Template
+Create `/etc/systemd/system/db9-mount-<dbname>.service`:
+
+```ini
+[Unit]
+Description=db9 FUSE Mount for <dbname>
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment="DB9_API_KEY=your_api_key_here"
+ExecStart=/usr/local/bin/db9 fs mount <dbname> /path/to/mount
+ExecStop=/usr/bin/umount /path/to/mount
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Activation
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable db9-mount-<dbname>
+sudo systemctl start db9-mount-<dbname>
+```
 
 ## Core db9 Workflow
 
@@ -38,10 +63,9 @@ Refer to the official db9 documentation at `https://db9.ai/skill.md` for full co
 - **Create**: `db9 create --name <name>`
 - **SQL**: `db9 sql <db> -q "SELECT ..."`
 - **Filesystem**: `db9 fs ls <db>:/` or `db9 cat <db>:/file`
-- **Branching**: `db9 branch create <db> --name <branch>`
 
 ## Guidelines
 
-- Always prefer `psql COPY` for bulk data imports over filesystem-based inserts.
-- When working in a headless environment, ensure you use `sudo -E` for mounts to access `/dev/fuse`.
-- Remember that db9 filesystems are TiKV-backed and persistent per database.
+- **Proactive Persistence**: Always suggest `systemd` for long-term project mounts.
+- **Security**: Remind users that the `DB9_API_KEY` in the unit file should be protected (chmod 600).
+- **Environment**: Use `sudo -E` for manual mounts if permissions on `/dev/fuse` are restricted.
